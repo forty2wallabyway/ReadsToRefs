@@ -5,6 +5,10 @@ channels:
   - defaults
 
 dependencies:
+  - python=3.11
+  - pandas
+  - matplotlib
+  - seaborn
   - snakemake
   - minimap2
   - samtools
