@@ -1,0 +1,10 @@
+name: ReadsToRefs
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+
+dependencies:
+  - snakemake
+  - minimap2
+  - samtools
