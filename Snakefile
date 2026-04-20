@@ -126,14 +126,12 @@ rule alignment_heatmap:
         summary = f"{REPORTS_DIR}/alignment_summary_percentages.tsv"
     output:
         plot = f"{REPORTS_DIR}/alignment_heatmap_top20.png"
-    shell:
-        r"""
-        python - <<'EOF'
+    run:
         import pandas as pd
         import matplotlib.pyplot as plt
         import seaborn as sns
 
-        df = pd.read_csv("{input.summary}", sep="\t")
+        df = pd.read_csv(input.summary, sep="\t")
 
         matrix = df.pivot(
             index="sample",
@@ -161,12 +159,11 @@ rule alignment_heatmap:
             linecolor="white"
         )
 
-        plt.title("ONT read alignment heatmap (Top 20 references)")
+        plt.title("Read Alignment (Top 20 Refs)")
         plt.xlabel("Reference")
         plt.ylabel("Sample")
 
         plt.tight_layout()
-        plt.savefig("{output.plot}", dpi=300)
+        plt.savefig(output.plot, dpi=300)
         plt.close()
-        EOF
-        """
+``
