@@ -1,0 +1,14 @@
+threads: 8
+
+quality_filter:
+  min_len: 250
+  min_qual: 12
+
+subsample:
+  enabled: false
+  n_reads: 60000
+  seed: 11
+
+competitive:
+  preset: map-ont
+  top_n: 20
