@@ -17,7 +17,6 @@ COUNT_DIR   = f"{RESULTS_DIR}/counts"
 REPORT_DIR  = f"{RESULTS_DIR}/reports"
 
 PLOT_SCRIPT  = "scripts/summarize_and_plot.py"
-FINAL_SCRIPT = "scripts/final_processing.py"
 
 ############################################
 # Samples
@@ -47,7 +46,11 @@ rule all:
         f"{REPORT_DIR}/alignment_summary_percentages.tsv",
         f"{REPORT_DIR}/alignment_heatmap_pct_top.png",
         f"{REPORT_DIR}/alignment_heatmap_counts_top.png",
-        "Figure1_EHDV_competition.png"
+        f"{RESULTS_DIR}/parental_origin.tsv",
+        expand(f"{REPORT_DIR}/chimeras/{{sample}}.split_reads.tsv", sample=SAMPLES),
+        expand(f"{REPORT_DIR}/chimeras/{{sample}}.internal_primers.tsv", sample=SAMPLES),
+        f"{RESULTS_DIR}/parental_origin_annotated.tsv",
+        expand(f"{RESULTS_DIR}/coverage/{{sample}}.coverage.tsv", sample=SAMPLES)
 
 ############################################
 # Host reference indexing
@@ -79,12 +82,37 @@ rule filter_reads:
         """
 
 ############################################
+## SISPA primer trimming
+############################################
+
+SISPA_PRIMERS = "references/sispa_primers.fasta"
+
+rule trim_sispa_primers:
+    input:
+        f"{WORK_DIR}/filtered/{{sample}}.fastq.gz"
+    output:
+        temp(f"{WORK_DIR}/noprimer/{{sample}}.fastq.gz"),
+        f"{REPORT_DIR}/sispa/{{sample}}.cutadapt.txt"
+    threads: THREADS
+    shell:
+        """
+        cutadapt \
+          -g file:{SISPA_PRIMERS} \
+          -a file:{SISPA_PRIMERS} \
+          --discard-untrimmed \
+          --report=full \
+          -j {threads} \
+          -o {output[0]} \
+          {input} > {output[1]}
+        """
+
+############################################
 # Host removal
 ############################################
 
 rule host_remove:
     input:
-        reads=f"{WORK_DIR}/filtered/{{sample}}.fastq.gz",
+        reads=f"{WORK_DIR}/noprimer/{{sample}}.fastq.gz",
         index=HOST_INDEX
     output:
         temp(f"{WORK_DIR}/nohost/{{sample}}.fastq.gz")
@@ -120,7 +148,7 @@ rule subsample:
             shell("cp {input} {output}")
 
 ############################################
-# Adapter trimming
+# Barcode and ONT adapter trimming
 ############################################
 
 rule trim_reads:
@@ -133,7 +161,7 @@ rule trim_reads:
         "porechop -i {input} -o {output} --threads {threads}"
 
 ############################################
-# Combine & index references (FIXED)
+# Combine & index references
 ############################################
 
 rule combine_refs:
@@ -171,6 +199,20 @@ rule align_competitive:
         """
 
 ############################################
+# Calculate coverage
+############################################
+
+rule segment_coverage:
+    input:
+        bam = f"{ALIGN_DIR}/{{sample}}.sorted.bam"
+    output:
+        f"{RESULTS_DIR}/coverage/{{sample}}.coverage.tsv"
+    shell:
+        """
+        samtools coverage {input.bam} > {output}
+        """
+
+############################################
 # Best-hit competitive counting
 ############################################
 
@@ -201,7 +243,48 @@ rule count_best_hit:
         """
 
 ############################################
-# Summary + heatmaps
+## Chimera detection
+############################################
+
+rule detect_split_alignments:
+    input:
+        bam=f"{ALIGN_DIR}/{{sample}}.sorted.bam"
+    output:
+        f"{REPORT_DIR}/chimeras/{{sample}}.split_reads.tsv"
+    shell:
+        """
+        samtools view -h {input.bam} | \
+        awk '
+        /^@/ {{next}}
+        {{
+          if ($6 ~ /N/ || $6 ~ /[0-9]+S.*[0-9]+S/) {{
+            print $1, $3, $6
+          }}
+        }}' OFS="\t" > {output}
+        """
+        
+rule detect_internal_primers:
+    input:
+        f"{WORK_DIR}/noprimer/{{sample}}.fastq.gz"
+    output:
+        f"{REPORT_DIR}/chimeras/{{sample}}.internal_primers.tsv"
+    shell:
+        r"""
+        cutadapt \
+          -b file:{SISPA_PRIMERS} \
+          --action=none \
+          --error-rate 0.2 \
+          --overlap 12 \
+          --info-file {output}.info \
+          -o /dev/null \
+          {input}
+
+        cut -f1 {output}.info | tail -n +2 | sort -u > {output}
+        rm {output}.info
+        """
+
+############################################
+# Summary and heatmaps
 ############################################
 
 rule summarize_and_plot:
@@ -226,17 +309,39 @@ rule summarize_and_plot:
         """
 
 ############################################
-# Final publication-quality figure (FIXED)
+## Parental origin table
 ############################################
 
-rule final_processing:
+rule parental_origin:
     input:
-        summary=f"{REPORT_DIR}/alignment_summary_percentages.tsv"
+        expand(f"{COUNT_DIR}/{{sample}}.per_reference.tsv", sample=SAMPLES)
     output:
-        fig="Figure1_EHDV_competition.png"
+        f"{RESULTS_DIR}/parental_origin.tsv"
     shell:
         """
-        cd {REPORT_DIR}
-        python ../../scripts/final_processing.py
-        mv Figure1_EHDV_competition.png ../../{output.fig}
+        python scripts/parental_origin.py \
+          --inputs {input} \
+          --min-diff {config[parental][min_diff]} \
+          --out {output}
         """
+
+############################################
+# Annotate chimeras
+############################################
+
+rule annotate_chimeras:
+    input:
+        parental=f"{RESULTS_DIR}/parental_origin.tsv",
+        split=expand(f"{REPORT_DIR}/chimeras/{{sample}}.split_reads.tsv", sample=SAMPLES),
+        primer=expand(f"{REPORT_DIR}/chimeras/{{sample}}.internal_primers.tsv", sample=SAMPLES)
+    output:
+        f"{RESULTS_DIR}/parental_origin_annotated.tsv"
+    shell:
+        """
+        python scripts/annotate_chimeras.py \
+          --parental {input.parental} \
+          --bam-dir {ALIGN_DIR} \
+          --split {input.split} \
+          --primer {input.primer} \
+          --out {output}
+        """  
