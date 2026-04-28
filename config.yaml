@@ -12,3 +12,6 @@ subsample:
 competitive:
   preset: map-ont
   top_n: 20
+
+parental:
+  min_diff: 50
