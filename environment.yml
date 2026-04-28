@@ -19,3 +19,4 @@ dependencies:
   - seaborn>=0.12
   - coreutils
   - gawk
+  - cutadapt>=5.2
