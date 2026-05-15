@@ -201,9 +201,12 @@ def add_unmapped_and_percents(df, samples, total_reads, include_unmapped, mode):
 
 def make_heatmap(summary_df, value_col, out_png, top_n, title, cbar_label):
     import matplotlib
-    matplotlib.use("Agg")  # headless-safe
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import seaborn as sns
+
+    # Exclude UNMAPPED from heatmaps (keep it in summary tables)
+    summary_df = summary_df[summary_df["reference"] != UNMAPPED_LABEL]
 
     if summary_df.empty:
         plt.figure(figsize=(6, 2))
@@ -214,22 +217,21 @@ def make_heatmap(summary_df, value_col, out_png, top_n, title, cbar_label):
         plt.close()
         return
 
-    mat = summary_df.pivot(index="sample", columns="reference", values=value_col).fillna(0)
+    mat = summary_df.pivot(
+        index="sample",
+        columns="reference",
+        values=value_col
+    ).fillna(0)
 
-    has_unmapped = UNMAPPED_LABEL in mat.columns
-    mat_no_unmapped = mat.drop(columns=[UNMAPPED_LABEL], errors="ignore")
-
-    # select top refs by mean of chosen value_col; keep UNMAPPED at end if present
-    top_refs = mat_no_unmapped.mean(axis=0).sort_values(ascending=False).head(top_n).index.tolist()
-    
-    # Alphanumeric sorting
+    # Select top references by mean value
+    top_refs = (
+        mat.mean(axis=0)
+           .sort_values(ascending=False)
+           .head(top_n)
+           .index
+           .tolist()
+    )
     top_refs = sorted(top_refs, key=natural_key)
-    
-    # If UNMAPPED exists, keep it at the end
-    if has_unmapped:
-        top_refs.append(UNMAPPED_LABEL)
-
-    top_refs = [c for c in top_refs if c in mat.columns]
     mat = mat[top_refs]
 
     fig_w = max(6, 1 + 0.5 * len(top_refs))
@@ -243,6 +245,7 @@ def make_heatmap(summary_df, value_col, out_png, top_n, title, cbar_label):
         linewidths=0.3,
         linecolor="white"
     )
+
     plt.title(title)
     plt.xlabel("Reference")
     plt.ylabel("Sample")
