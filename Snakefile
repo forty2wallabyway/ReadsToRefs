@@ -120,7 +120,7 @@ rule host_remove:
     shell:
         """
         minimap2 -ax map-ont -t {threads} {input.index} {input.reads} |
-        samtools view -b -f 4 |
+        samtools view -b -f 4 -F 0x900 |
         samtools fastq |
         gzip -c > {output}
         """
@@ -222,24 +222,10 @@ rule count_best_hit:
     output:
         f"{COUNT_DIR}/{{sample}}.per_reference.tsv"
     shell:
-        """
-        samtools view -h -F 0x100 {input} |
-        awk '
-        BEGIN {{OFS="\\t"}}
-        /^@/ {{next}}
-        {{
-          read=$1; ref=$3; mapq=$5; as=0
-          for (i=12;i<=NF;i++)
-            if ($i ~ /^AS:i:/) {{split($i,a,":"); as=a[3]}}
-          if (!(read in best) || as>best_as[read] || (as==best_as[read] && mapq>best_mapq[read])) {{
-            best[read]=ref; best_as[read]=as; best_mapq[read]=mapq
-          }}
-        }}
-        END {{
-          for (r in best)
-            if (best[r]!="*") counts[best[r]]++
-          for (ref in counts) print ref, counts[ref]
-        }}' > {output}
+        r"""
+        samtools view -F 4 -F 0x100 {input} |
+        awk 'BEGIN{{OFS="\t"}} {{counts[$3]++}} END{{for (r in counts) print r, counts[r]}}' \
+        > {output}
         """
 
 ############################################
@@ -253,14 +239,21 @@ rule detect_split_alignments:
         f"{REPORT_DIR}/chimeras/{{sample}}.split_reads.tsv"
     shell:
         """
-        samtools view -h {input.bam} | \
+        samtools view -h -F 0x100 {input.bam} | \
         awk '
+        BEGIN {{OFS="\\t"}}
         /^@/ {{next}}
         {{
-          if ($6 ~ /N/ || $6 ~ /[0-9]+S.*[0-9]+S/) {{
-            print $1, $3, $6
-          }}
-        }}' OFS="\t" > {output}
+            sa_tag = ""
+            for (i = 12; i <= NF; i++) {{
+                if ($i ~ /^SA:Z:/) {{
+                    sa_tag = substr($i, 6)
+                }}
+            }}
+            if (sa_tag != "") {{
+                print $1, $3, $6, sa_tag
+            }}
+        }}' > {output}
         """
         
 rule detect_internal_primers:
